@@ -64,9 +64,9 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("think-off", {
-    description: "Toggle saving model thinking blocks to the session",
+    description: "Control whether model thinking blocks are saved to the session",
     getArgumentCompletions: (prefix: string) => {
-      const values = ["on", "off", "status"];
+      const values = ["save", "drop", "status"];
       const items = values
         .filter((value) => value.startsWith(prefix.trim()))
         .map((value) => ({ value, label: value }));
@@ -75,21 +75,21 @@ export default function (pi: ExtensionAPI) {
     handler: async (args, ctx) => {
       const action = args.trim().toLowerCase();
 
-      if (!action || action === "toggle") {
+      if (!action) {
         saveThinking = !saveThinking;
         persistState();
         notifyStatus(ctx);
         return;
       }
 
-      if (action === "on" || action === "save" || action === "keep") {
+      if (action === "save") {
         saveThinking = true;
         persistState();
         notifyStatus(ctx);
         return;
       }
 
-      if (action === "off" || action === "drop" || action === "remove") {
+      if (action === "drop") {
         saveThinking = false;
         persistState();
         notifyStatus(ctx);
@@ -101,7 +101,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /think-off [on|off|status]", "error");
+      ctx.ui.notify("Usage: /think-off [save|drop|status]", "error");
     },
   });
 

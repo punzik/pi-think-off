@@ -14,7 +14,7 @@ When extended thinking is enabled, assistant messages can contain `ThinkingConte
 
 - Thinking is **removed from the LLM context**.
 - Thinking is **kept in the session by default**.
-- Use `/think-off` to toggle whether new thinking blocks are saved.
+- Use `/think-off` to control whether new thinking blocks are saved.
 - When saving is enabled, thinking remains visible in `/tree` and in session data.
 - No commands or configuration are required after installation.
 
@@ -66,12 +66,12 @@ pi --thinking high
 
 The extension automatically filters thinking blocks before each LLM request.
 
-Use `/think-off` to toggle saving thinking blocks to the session:
+Use `/think-off` to control saving thinking blocks to the session:
 
 ```text
-/think-off          # toggle saving on/off
-/think-off off      # do not save thinking blocks from new assistant messages
-/think-off on       # keep thinking blocks in the session
+/think-off          # toggle saving/drop mode
+/think-off drop     # do not save thinking blocks from new assistant messages
+/think-off save     # keep thinking blocks in the session
 /think-off status   # show current mode
 ```
 
