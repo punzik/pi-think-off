@@ -1,7 +1,7 @@
 {
   "name": "pi-think-off",
   "version": "0.1.0",
-  "description": "Pi extension that removes model thinking blocks from LLM context while preserving session history.",
+  "description": "Pi extension that removes model thinking blocks from LLM context and can optionally prevent saving them.",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",

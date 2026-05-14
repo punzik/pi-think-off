@@ -2,19 +2,20 @@
 
 A [Pi](https://pi.dev) package that removes model thinking blocks (extended thinking / reasoning) from the context sent to the LLM.
 
-The extension keeps thinking blocks in the session file for human review, but strips them from outgoing model requests. This reduces token usage and prevents old reasoning from accumulating in the context.
+The extension strips thinking blocks from outgoing model requests. By default it keeps thinking blocks in the session for human review, but this can be toggled with `/think-off`.
 
 ## Why
 
 When extended thinking is enabled, assistant messages can contain `ThinkingContent` blocks. Across multiple turns these blocks can become large and waste context tokens.
 
-`pi-think-off` removes `type: "thinking"` blocks from assistant messages in the LLM context while preserving the original session history on disk.
+`pi-think-off` removes `type: "thinking"` blocks from assistant messages in the LLM context. Optionally, it can also remove them before assistant messages are saved to disk.
 
 ## Behavior
 
 - Thinking is **removed from the LLM context**.
-- Thinking is **kept in the session file**.
-- Thinking remains visible in `/tree` and in the JSONL session data.
+- Thinking is **kept in the session by default**.
+- Use `/think-off` to toggle whether new thinking blocks are saved.
+- When saving is enabled, thinking remains visible in `/tree` and in session data.
 - No commands or configuration are required after installation.
 
 ## Installation
@@ -65,11 +66,22 @@ pi --thinking high
 
 The extension automatically filters thinking blocks before each LLM request.
 
+Use `/think-off` to toggle saving thinking blocks to the session:
+
+```text
+/think-off          # toggle saving on/off
+/think-off off      # do not save thinking blocks from new assistant messages
+/think-off on       # keep thinking blocks in the session
+/think-off status   # show current mode
+```
+
+The setting is stored in the current session branch. It affects new assistant messages only; existing JSONL entries are not rewritten. When saving is off, the footer shows a `[TOFF]` status badge.
+
 ## How it works
 
 The package declares its extension in `package.json` under the `pi.extensions` manifest key. Pi loads `extensions/think-off.ts` and the extension listens for the `context` event, which fires before each request to the LLM.
 
-For every assistant message in the outgoing context, the extension removes content blocks with `type: "thinking"`. Saved session messages are not modified.
+For every assistant message in the outgoing context, the extension removes content blocks with `type: "thinking"`. The `/think-off` command stores a per-session-branch setting, and when saving is off the extension also removes thinking blocks from finalized assistant messages before they are written to the session.
 
 ## Package layout
 
