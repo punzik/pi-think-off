@@ -1,0 +1,34 @@
+{
+  "name": "pi-think-off",
+  "version": "0.1.0",
+  "description": "Pi extension that removes model thinking blocks from LLM context while preserving session history.",
+  "license": "GPL-3.0-only",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/punzik/pi-think-off.git"
+  },
+  "homepage": "https://github.com/punzik/pi-think-off#readme",
+  "bugs": {
+    "url": "https://github.com/punzik/pi-think-off/issues"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-extension",
+    "thinking",
+    "reasoning",
+    "context"
+  ],
+  "files": [
+    "extensions/",
+    "README.md",
+    "LICENSE"
+  ],
+  "peerDependencies": {
+    "@mariozechner/pi-coding-agent": "*"
+  },
+  "pi": {
+    "extensions": [
+      "./extensions/think-off.ts"
+    ]
+  }
+}
