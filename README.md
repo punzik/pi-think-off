@@ -20,12 +20,6 @@ When extended thinking is enabled, assistant messages can contain `ThinkingConte
 
 ## Installation
 
-### From npm
-
-```bash
-pi install npm:pi-think-off
-```
-
 ### From git
 
 ```bash
