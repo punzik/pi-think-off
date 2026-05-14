@@ -64,7 +64,7 @@ export default function (pi: ExtensionAPI) {
   }
 
   pi.registerCommand("think-off", {
-    description: "Control whether model thinking blocks are saved to the session",
+    description: "Control whether model thinking blocks are saved to the session. Usage: /think-off [save|drop|status]",
     getArgumentCompletions: (prefix: string) => {
       const values = ["save", "drop", "status"];
       const items = values
