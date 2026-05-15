@@ -11,7 +11,7 @@ When extended thinking is enabled, assistant messages can contain `ThinkingConte
 ## Behavior
 
 - `off`: thinking blocks are not removed.
-- `context` / `on`: thinking blocks are removed only from the LLM context.
+- `context`: thinking blocks are removed only from the LLM context.
 - `full`: thinking blocks are removed from the LLM context and from new assistant messages before they are saved.
 - The default mode is `off`.
 - `/ctt` without arguments toggles between `off` and the previous active mode.
@@ -65,8 +65,7 @@ Use `/ctt` to control thinking block removal:
 ```text
 /ctt          # toggle between off and the previous active mode
 /ctt off      # disable thinking block removal
-/ctt on       # remove thinking blocks from LLM context only
-/ctt context  # same as /ctt on
+/ctt context  # remove thinking blocks from LLM context only
 /ctt full     # remove thinking blocks from context and new session messages
 /ctt status   # show current mode
 ```

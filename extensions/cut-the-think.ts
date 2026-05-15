@@ -28,8 +28,8 @@ const ENABLE_CTT_ENV = "PI_CUT_THE_THINK";
 const DEFAULT_MODE: CutTheThinkMode = "off";
 const DEFAULT_PREVIOUS_MODE: ActiveCutTheThinkMode = "context";
 const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
-const COMMAND_USAGE = "Usage: /ctt [off|on|context|full|status]";
-const COMMAND_ARGUMENTS = ["off", "on", "context", "full", "status"];
+const COMMAND_USAGE = "Usage: /ctt [off|context|full|status]";
+const COMMAND_ARGUMENTS = ["off", "context", "full", "status"];
 
 function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
   return value === "off" || value === "context" || value === "full";
@@ -63,15 +63,6 @@ function readCutTheThinkState(data: unknown): RestoredCutTheThinkState {
     const { previousMode } = data;
     if (isActiveCutTheThinkMode(previousMode)) {
       state.previousMode = previousMode;
-    }
-  }
-
-  // Backward compatibility with sessions that used the old boolean state.
-  if (state.mode === undefined && "saveThinking" in data) {
-    const { saveThinking } = data;
-    if (typeof saveThinking === "boolean") {
-      state.mode = saveThinking ? "context" : "full";
-      state.previousMode = state.mode;
     }
   }
 
@@ -181,7 +172,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (action === "on" || action === "context") {
+      if (action === "context") {
         setMode("context");
         persistState();
         notifyStatus(ctx);
