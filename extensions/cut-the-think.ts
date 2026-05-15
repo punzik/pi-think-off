@@ -3,14 +3,15 @@
  *
  * Thinking blocks (extended reasoning) can be removed from messages sent to
  * the LLM and, in full mode, from new assistant messages saved to the
- * session.
+ * session. Lazy mode preserves thinking during tool-call chains and removes
+ * it from the last completed chain only after the next user prompt.
  */
 import { env } from "node:process";
 
 import type { AssistantMessage } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-type CutTheThinkMode = "off" | "context" | "full";
+type CutTheThinkMode = "off" | "context" | "lazy" | "full";
 type ActiveCutTheThinkMode = Exclude<CutTheThinkMode, "off">;
 
 interface CutTheThinkState {
@@ -28,21 +29,24 @@ const ENABLE_CTT_ENV = "PI_CUT_THE_THINK";
 const DEFAULT_MODE: CutTheThinkMode = "off";
 const DEFAULT_PREVIOUS_MODE: ActiveCutTheThinkMode = "context";
 const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
-const COMMAND_USAGE = "Usage: /ctt [off|context|full|status]";
-const COMMAND_ARGUMENTS = ["off", "context", "full", "status"];
+const COMMAND_USAGE = "Usage: /ctt [off|context|lazy|full|status]";
+const COMMAND_ARGUMENTS = ["off", "context", "lazy", "full", "status"];
 
 function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
-  return value === "off" || value === "context" || value === "full";
+  return (
+    value === "off" || value === "context" || value === "lazy" || value === "full"
+  );
 }
 
 function isActiveCutTheThinkMode(value: unknown): value is ActiveCutTheThinkMode {
-  return value === "context" || value === "full";
+  return value === "context" || value === "lazy" || value === "full";
 }
 
 function readModeFromEnv(): CutTheThinkMode | undefined {
   const value = env[ENABLE_CTT_ENV]?.trim().toLowerCase();
   if (value === undefined) return undefined;
   if (CONTEXT_ENV_VALUES.has(value)) return "context";
+  if (value === "lazy") return "lazy";
   if (value === "full") return "full";
   return undefined;
 }
@@ -126,11 +130,18 @@ export default function (pi: ExtensionAPI) {
   }
 
   function updateStatus(ctx: ExtensionContext) {
-    ctx.ui.setStatus(
-      "cut-the-think",
+    const status =
       mode === "off"
         ? undefined
-        : ctx.ui.theme.fg("warning", mode === "full" ? "[CTT:F]" : "[CTT]"),
+        : mode === "lazy"
+          ? "[CTT:L]"
+          : mode === "full"
+            ? "[CTT:F]"
+            : "[CTT]";
+
+    ctx.ui.setStatus(
+      "cut-the-think",
+      status === undefined ? undefined : ctx.ui.theme.fg("warning", status),
     );
   }
 
@@ -141,8 +152,10 @@ export default function (pi: ExtensionAPI) {
       mode === "off"
         ? "cut-the-think: disabled"
         : mode === "context"
-          ? "cut-the-think: thinking blocks are removed from LLM context only"
-          : "cut-the-think: thinking blocks are removed from LLM context and new session messages";
+          ? "cut-the-think: thinking blocks are removed from the latest assistant message in LLM context"
+          : mode === "lazy"
+            ? "cut-the-think: thinking blocks are preserved during tool-call chains and removed from the last completed chain"
+            : "cut-the-think: thinking blocks are removed from LLM context and new session messages";
 
     ctx.ui.notify(message, "info");
   }
@@ -179,6 +192,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (action === "lazy") {
+        setMode("lazy");
+        persistState();
+        notifyStatus(ctx);
+        return;
+      }
+
       if (action === "full") {
         setMode("full");
         persistState();
@@ -207,6 +227,52 @@ export default function (pi: ExtensionAPI) {
 
   pi.on("context", async (event, _ctx) => {
     if (mode === "off") return;
+
+    if (mode === "lazy") {
+      let currentUserIndex = -1;
+
+      for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+        if (event.messages[index]?.role === "user") {
+          currentUserIndex = index;
+          break;
+        }
+      }
+
+      if (currentUserIndex === -1) return;
+
+      const hasActiveChainAfterCurrentUser = event.messages
+        .slice(currentUserIndex + 1)
+        .some((msg) => msg.role === "assistant" || msg.role === "toolResult");
+      if (hasActiveChainAfterCurrentUser) return;
+
+      let previousUserIndex = -1;
+      for (let index = currentUserIndex - 1; index >= 0; index -= 1) {
+        if (event.messages[index]?.role === "user") {
+          previousUserIndex = index;
+          break;
+        }
+      }
+
+      if (previousUserIndex === -1) return;
+
+      const messages = event.messages.slice();
+      let changed = false;
+
+      for (let index = previousUserIndex + 1; index < currentUserIndex; index += 1) {
+        const msg = event.messages[index];
+
+        // Only touch assistant messages — thinking blocks live there.
+        if (msg?.role !== "assistant") continue;
+
+        const filteredMessage = removeThinkingBlocks(msg);
+        if (filteredMessage === msg) continue;
+
+        messages[index] = filteredMessage;
+        changed = true;
+      }
+
+      return changed ? { messages } : undefined;
+    }
 
     let lastAssistantIndex = -1;
     let lastAssistantMessage: AssistantMessage | undefined;
