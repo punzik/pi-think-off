@@ -140,8 +140,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     if (startupEnvMode !== undefined) {
-      setMode(startupEnvMode);
-      persistState();
+      if (startupEnvMode !== mode) {
+        setMode(startupEnvMode);
+        persistState();
+      }
       startupEnvMode = undefined;
     }
   }
