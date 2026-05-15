@@ -208,13 +208,29 @@ export default function (pi: ExtensionAPI) {
   pi.on("context", async (event, _ctx) => {
     if (mode === "off") return;
 
-    return {
-      messages: event.messages.map((msg) => {
-        // Only touch assistant messages — thinking blocks live there.
-        if (msg.role !== "assistant") return msg;
-        return removeThinkingBlocks(msg);
-      }),
-    };
+    let lastAssistantIndex = -1;
+    let lastAssistantMessage: AssistantMessage | undefined;
+
+    for (let index = event.messages.length - 1; index >= 0; index -= 1) {
+      const msg = event.messages[index];
+
+      // Only touch assistant messages — thinking blocks live there.
+      if (msg?.role !== "assistant") continue;
+
+      lastAssistantIndex = index;
+      lastAssistantMessage = msg;
+      break;
+    }
+
+    if (lastAssistantMessage === undefined) return;
+
+    const filteredMessage = removeThinkingBlocks(lastAssistantMessage);
+    if (filteredMessage === lastAssistantMessage) return;
+
+    const messages = event.messages.slice();
+    messages[lastAssistantIndex] = filteredMessage;
+
+    return { messages };
   });
 
   pi.on("message_end", async (event, _ctx) => {

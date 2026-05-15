@@ -6,13 +6,19 @@ A [Pi](https://pi.dev) package that controls removal of model thinking blocks.
 
 When extended thinking is enabled, assistant messages can contain `ThinkingContent` blocks. Across multiple turns these blocks can become large and waste context tokens.
 
-`pi-cut-the-think` can remove `type: "thinking"` blocks from assistant messages in the LLM context. It can also remove them before new assistant messages are saved to disk.
+This is especially useful for local models. Thinking blocks can pollute the conversation context, especially with models that reason verbosely and explore multiple alternatives in their reasoning traces, often starting with phrases like "Wait...".
+
+Local models are often sensitive to context pressure: as the prompt grows and the context window fills up, their output quality can degrade noticeably. Removing thinking blocks before they accumulate keeps the effective context smaller and helps avoid feeding stale or contradictory reasoning back into later turns.
+
+Unlike plugins that rewrite the beginning of the context, `pi-cut-the-think` only removes thinking from the latest assistant message in the LLM context. This keeps the stable prompt prefix intact and helps local inference reuse the KV cache. Re-processing long context is especially expensive for local models, and can be painful in heterogeneous GPU+CPU setups. Use `full` mode to prevent newly generated thinking blocks from accumulating in the saved session.
+
+`pi-cut-the-think` can remove `type: "thinking"` blocks from the latest assistant message in the LLM context. It can also remove them before new assistant messages are saved to disk.
 
 ## Behavior
 
 - `off`: thinking blocks are not removed.
-- `context`: thinking blocks are removed only from the LLM context.
-- `full`: thinking blocks are removed from the LLM context and from new assistant messages before they are saved.
+- `context`: thinking blocks are removed only from the latest assistant message in the LLM context.
+- `full`: thinking blocks are removed from the latest assistant message in the LLM context and from new assistant messages before they are saved.
 - The default mode is `off`.
 - `/ctt` without arguments toggles between `off` and the previous active mode.
 - The first `/ctt` toggle enables `context` mode.
@@ -65,8 +71,8 @@ Use `/ctt` to control thinking block removal:
 ```text
 /ctt          # toggle between off and the previous active mode
 /ctt off      # disable thinking block removal
-/ctt context  # remove thinking blocks from LLM context only
-/ctt full     # remove thinking blocks from context and new session messages
+/ctt context  # remove thinking blocks from the latest assistant message in LLM context only
+/ctt full     # remove thinking blocks from the latest context assistant message and new session messages
 /ctt status   # show current mode
 ```
 
@@ -88,10 +94,11 @@ PI_CUT_THE_THINK=full pi --thinking high
 
 Pi loads `extensions/cut-the-think.ts` from the package manifest in `package.json`.
 
-The extension listens for the `context` event and, in `context` or `full` mode, removes `type: "thinking"` blocks from assistant messages before each request to the LLM. In `full` mode, it also listens for `message_end` and removes thinking blocks from finalized assistant messages before they are saved.
+The extension listens for the `context` event and, in `context` or `full` mode, removes `type: "thinking"` blocks only from the latest assistant message before each request to the LLM. Earlier context messages are left unchanged to keep the prompt prefix stable for KV-cache reuse. In `full` mode, it also listens for `message_end` and removes thinking blocks from finalized assistant messages before they are saved.
 
 ## Limitations
 
+- Only the latest assistant message in the outgoing LLM context is modified.
 - `full` mode affects only new assistant messages.
 - Existing JSONL session entries are not modified.
 - If thinking is not saved in `full` mode, it is lost after the current streaming view is gone.
