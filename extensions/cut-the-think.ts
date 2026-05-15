@@ -8,7 +8,7 @@
  */
 import { env } from "node:process";
 
-import type { AssistantMessage } from "@earendil-works/pi-ai";
+import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
 type CutTheThinkMode = "off" | "context" | "lazy" | "full";
@@ -31,6 +31,7 @@ const DEFAULT_PREVIOUS_MODE: ActiveCutTheThinkMode = "context";
 const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
 const COMMAND_USAGE = "Usage: /ctt [off|context|lazy|full|status]";
 const COMMAND_ARGUMENTS = ["off", "context", "lazy", "full", "status"];
+const THINKING_REMOVED_PLACEHOLDER = "[thinking removed]";
 
 function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
   return (
@@ -73,12 +74,28 @@ function readCutTheThinkState(data: unknown): RestoredCutTheThinkState {
   return state;
 }
 
-function removeThinkingBlocks(msg: AssistantMessage): AssistantMessage {
+function createThinkingRemovedPlaceholder(): TextContent {
+  return { type: "text", text: THINKING_REMOVED_PLACEHOLDER };
+}
+
+function removeThinkingBlocks(msg: AssistantMessage): AssistantMessage | undefined {
+  const filtered = msg.content.filter((block) => block.type !== "thinking");
+
+  if (filtered.length === msg.content.length) return msg;
+  if (filtered.length === 0) return undefined;
+
+  return { ...msg, content: filtered };
+}
+
+function removeThinkingBlocksOrPlaceholder(msg: AssistantMessage): AssistantMessage {
   const filtered = msg.content.filter((block) => block.type !== "thinking");
 
   if (filtered.length === msg.content.length) return msg;
 
-  return { ...msg, content: filtered };
+  return {
+    ...msg,
+    content: filtered.length > 0 ? filtered : [createThinkingRemovedPlaceholder()],
+  };
 }
 
 export default function (pi: ExtensionAPI) {
@@ -255,7 +272,8 @@ export default function (pi: ExtensionAPI) {
 
       if (previousUserIndex === -1) return;
 
-      const messages = event.messages.slice();
+      type ContextMessage = (typeof event.messages)[number];
+      const messages: Array<ContextMessage | undefined> = event.messages.slice();
       let changed = false;
 
       for (let index = previousUserIndex + 1; index < currentUserIndex; index += 1) {
@@ -271,7 +289,9 @@ export default function (pi: ExtensionAPI) {
         changed = true;
       }
 
-      return changed ? { messages } : undefined;
+      return changed
+        ? { messages: messages.filter((msg): msg is ContextMessage => msg !== undefined) }
+        : undefined;
     }
 
     let lastAssistantIndex = -1;
@@ -294,7 +314,11 @@ export default function (pi: ExtensionAPI) {
     if (filteredMessage === lastAssistantMessage) return;
 
     const messages = event.messages.slice();
-    messages[lastAssistantIndex] = filteredMessage;
+    if (filteredMessage === undefined) {
+      messages.splice(lastAssistantIndex, 1);
+    } else {
+      messages[lastAssistantIndex] = filteredMessage;
+    }
 
     return { messages };
   });
@@ -303,6 +327,6 @@ export default function (pi: ExtensionAPI) {
     if (mode !== "full") return;
     if (event.message.role !== "assistant") return;
 
-    return { message: removeThinkingBlocks(event.message) };
+    return { message: removeThinkingBlocksOrPlaceholder(event.message) };
   });
 }
