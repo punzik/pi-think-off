@@ -1,36 +1,81 @@
 /**
- * pi-cut-the-think — strip model thinking from context so it doesn't accumulate.
+ * pi-cut-the-think — control removal of model thinking blocks.
  *
- * Thinking blocks (extended reasoning) are always removed from messages sent
- * to the LLM. By default they are still saved in the session for human
- * review, but saving can be toggled with /ctt.
+ * Thinking blocks (extended reasoning) can be removed from messages sent to
+ * the LLM and, in full mode, from new assistant messages saved to the
+ * session.
  */
 import { env } from "node:process";
 
 import type { AssistantMessage } from "@mariozechner/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
+type CutTheThinkMode = "off" | "context" | "full";
+type ActiveCutTheThinkMode = Exclude<CutTheThinkMode, "off">;
+
 interface CutTheThinkState {
-  saveThinking: boolean;
+  mode: CutTheThinkMode;
+  previousMode: ActiveCutTheThinkMode;
+}
+
+interface RestoredCutTheThinkState {
+  mode?: CutTheThinkMode;
+  previousMode?: ActiveCutTheThinkMode;
 }
 
 const STATE_TYPE = "cut-the-think-state";
 const ENABLE_CTT_ENV = "PI_CUT_THE_THINK";
-const TRUE_ENV_VALUES = new Set(["1", "true", "yes", "on"]);
-const COMMAND_USAGE = "Usage: /ctt [on|off|status]";
-const COMMAND_ARGUMENTS = ["on", "off", "status"];
+const DEFAULT_MODE: CutTheThinkMode = "off";
+const DEFAULT_PREVIOUS_MODE: ActiveCutTheThinkMode = "context";
+const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
+const COMMAND_USAGE = "Usage: /ctt [off|on|context|full|status]";
+const COMMAND_ARGUMENTS = ["off", "on", "context", "full", "status"];
 
-function isCttEnabledFromEnv(): boolean {
-  const value = env[ENABLE_CTT_ENV]?.trim().toLowerCase();
-  return value !== undefined && TRUE_ENV_VALUES.has(value);
+function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
+  return value === "off" || value === "context" || value === "full";
 }
 
-function readSaveThinkingState(data: unknown): boolean | undefined {
-  if (typeof data !== "object" || data === null) return undefined;
-  if (!("saveThinking" in data)) return undefined;
+function isActiveCutTheThinkMode(value: unknown): value is ActiveCutTheThinkMode {
+  return value === "context" || value === "full";
+}
 
-  const { saveThinking } = data;
-  return typeof saveThinking === "boolean" ? saveThinking : undefined;
+function readModeFromEnv(): CutTheThinkMode | undefined {
+  const value = env[ENABLE_CTT_ENV]?.trim().toLowerCase();
+  if (value === undefined) return undefined;
+  if (CONTEXT_ENV_VALUES.has(value)) return "context";
+  if (value === "full") return "full";
+  return undefined;
+}
+
+function readCutTheThinkState(data: unknown): RestoredCutTheThinkState {
+  if (typeof data !== "object" || data === null) return {};
+
+  const state: RestoredCutTheThinkState = {};
+
+  if ("mode" in data) {
+    const { mode } = data;
+    if (isCutTheThinkMode(mode)) {
+      state.mode = mode;
+    }
+  }
+
+  if ("previousMode" in data) {
+    const { previousMode } = data;
+    if (isActiveCutTheThinkMode(previousMode)) {
+      state.previousMode = previousMode;
+    }
+  }
+
+  // Backward compatibility with sessions that used the old boolean state.
+  if (state.mode === undefined && "saveThinking" in data) {
+    const { saveThinking } = data;
+    if (typeof saveThinking === "boolean") {
+      state.mode = saveThinking ? "context" : "full";
+      state.previousMode = state.mode;
+    }
+  }
+
+  return state;
 }
 
 function removeThinkingBlocks(msg: AssistantMessage): AssistantMessage {
@@ -42,51 +87,77 @@ function removeThinkingBlocks(msg: AssistantMessage): AssistantMessage {
 }
 
 export default function (pi: ExtensionAPI) {
-  let saveThinking = true;
-  let applyEnvCttOnStartup = isCttEnabledFromEnv();
+  let mode: CutTheThinkMode = DEFAULT_MODE;
+  let previousMode: ActiveCutTheThinkMode = DEFAULT_PREVIOUS_MODE;
+  let startupEnvMode = readModeFromEnv();
+
+  function setMode(nextMode: CutTheThinkMode) {
+    if (mode !== "off") {
+      previousMode = mode;
+    }
+
+    mode = nextMode;
+
+    if (mode !== "off") {
+      previousMode = mode;
+    }
+  }
 
   function persistState() {
-    pi.appendEntry<CutTheThinkState>(STATE_TYPE, { saveThinking });
+    pi.appendEntry<CutTheThinkState>(STATE_TYPE, { mode, previousMode });
   }
 
   function restoreState(ctx: ExtensionContext) {
-    saveThinking = true;
+    mode = DEFAULT_MODE;
+    previousMode = DEFAULT_PREVIOUS_MODE;
 
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
 
-      const restoredSaveThinking = readSaveThinkingState(entry.data);
-      if (restoredSaveThinking !== undefined) {
-        saveThinking = restoredSaveThinking;
+      const restoredState = readCutTheThinkState(entry.data);
+
+      if (restoredState.mode !== undefined) {
+        mode = restoredState.mode;
+      }
+
+      if (restoredState.previousMode !== undefined) {
+        previousMode = restoredState.previousMode;
+      } else if (isActiveCutTheThinkMode(restoredState.mode)) {
+        previousMode = restoredState.mode;
       }
     }
 
-    if (applyEnvCttOnStartup) {
-      saveThinking = false;
+    if (startupEnvMode !== undefined) {
+      setMode(startupEnvMode);
       persistState();
-      applyEnvCttOnStartup = false;
+      startupEnvMode = undefined;
     }
   }
 
   function updateStatus(ctx: ExtensionContext) {
     ctx.ui.setStatus(
       "cut-the-think",
-      saveThinking ? undefined : ctx.ui.theme.fg("warning", "[CTT]"),
+      mode === "off"
+        ? undefined
+        : ctx.ui.theme.fg("warning", mode === "full" ? "[CTT:F]" : "[CTT]"),
     );
   }
 
   function notifyStatus(ctx: ExtensionContext) {
     updateStatus(ctx);
-    ctx.ui.notify(
-      saveThinking
-        ? "cut-the-think: thinking blocks are kept in the session"
-        : "cut-the-think: thinking blocks are NOT saved to the session",
-      "info",
-    );
+
+    const message =
+      mode === "off"
+        ? "cut-the-think: disabled"
+        : mode === "context"
+          ? "cut-the-think: thinking blocks are removed from LLM context only"
+          : "cut-the-think: thinking blocks are removed from LLM context and new session messages";
+
+    ctx.ui.notify(message, "info");
   }
 
   pi.registerCommand("ctt", {
-    description: `Toggle CTT mode, which prevents saving thinking blocks. ${COMMAND_USAGE}`,
+    description: `Toggle CTT mode. ${COMMAND_USAGE}`,
     getArgumentCompletions: (prefix: string) => {
       const items = COMMAND_ARGUMENTS
         .filter((value) => value.startsWith(prefix.trim()))
@@ -97,21 +168,28 @@ export default function (pi: ExtensionAPI) {
       const action = args.trim().toLowerCase();
 
       if (!action) {
-        saveThinking = !saveThinking;
+        setMode(mode === "off" ? previousMode : "off");
         persistState();
         notifyStatus(ctx);
         return;
       }
 
       if (action === "off") {
-        saveThinking = true;
+        setMode("off");
         persistState();
         notifyStatus(ctx);
         return;
       }
 
-      if (action === "on") {
-        saveThinking = false;
+      if (action === "on" || action === "context") {
+        setMode("context");
+        persistState();
+        notifyStatus(ctx);
+        return;
+      }
+
+      if (action === "full") {
+        setMode("full");
         persistState();
         notifyStatus(ctx);
         return;
@@ -137,6 +215,8 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("context", async (event, _ctx) => {
+    if (mode === "off") return;
+
     return {
       messages: event.messages.map((msg) => {
         // Only touch assistant messages — thinking blocks live there.
@@ -147,7 +227,7 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("message_end", async (event, _ctx) => {
-    if (saveThinking) return;
+    if (mode !== "full") return;
     if (event.message.role !== "assistant") return;
 
     return { message: removeThinkingBlocks(event.message) };

@@ -1,20 +1,23 @@
 # pi-cut-the-think
 
-A [Pi](https://pi.dev) package that removes model thinking blocks from the context sent to the LLM.
+A [Pi](https://pi.dev) package that controls removal of model thinking blocks.
 
 ## Why
 
 When extended thinking is enabled, assistant messages can contain `ThinkingContent` blocks. Across multiple turns these blocks can become large and waste context tokens.
 
-`pi-cut-the-think` removes `type: "thinking"` blocks from assistant messages in the LLM context. It can also remove them before new assistant messages are saved to disk.
+`pi-cut-the-think` can remove `type: "thinking"` blocks from assistant messages in the LLM context. It can also remove them before new assistant messages are saved to disk.
 
 ## Behavior
 
-- Thinking is always removed from the LLM context.
-- Thinking is kept in the session by default.
-- `/ctt` controls whether new thinking blocks are saved.
-- `PI_CUT_THE_THINK=1` starts Pi with CTT mode enabled.
-- When CTT mode is enabled, the footer shows `[CTT]`.
+- `off`: thinking blocks are not removed.
+- `context` / `on`: thinking blocks are removed only from the LLM context.
+- `full`: thinking blocks are removed from the LLM context and from new assistant messages before they are saved.
+- The default mode is `off`.
+- `/ctt` without arguments toggles between `off` and the previous active mode.
+- The first `/ctt` toggle enables `context` mode.
+- `PI_CUT_THE_THINK=1` starts Pi in `context` mode.
+- When CTT mode is enabled, the footer shows `[CTT]` or `[CTT:F]`.
 - Existing session entries are not rewritten.
 
 ## Installation
@@ -57,36 +60,42 @@ Use Pi with extended thinking as usual:
 pi --thinking high
 ```
 
-The extension filters thinking blocks before each LLM request.
-
-Use `/ctt` to control whether thinking blocks are saved to the session:
+Use `/ctt` to control thinking block removal:
 
 ```text
-/ctt          # toggle CTT mode
-/ctt on       # do not save thinking blocks from new assistant messages
-/ctt off      # keep thinking blocks in the session
+/ctt          # toggle between off and the previous active mode
+/ctt off      # disable thinking block removal
+/ctt on       # remove thinking blocks from LLM context only
+/ctt context  # same as /ctt on
+/ctt full     # remove thinking blocks from context and new session messages
 /ctt status   # show current mode
 ```
 
-The setting is stored in the current session branch. It affects new assistant messages only.
+The setting is stored in the current session branch. `full` mode affects new assistant messages only.
 
-To start Pi with CTT mode enabled, set `PI_CUT_THE_THINK` to `1`, `true`, `yes`, or `on`:
+To start Pi in `context` mode, set `PI_CUT_THE_THINK` to `1`, `true`, `yes`, `on`, or `context`:
 
 ```bash
-PI_CUT_THE_THINK=1 pi --thinking high
+PI_CUT_THE_THINK=context pi --thinking high
+```
+
+To start Pi in `full` mode, set `PI_CUT_THE_THINK` to `full`:
+
+```bash
+PI_CUT_THE_THINK=full pi --thinking high
 ```
 
 ## How it works
 
 Pi loads `extensions/cut-the-think.ts` from the package manifest in `package.json`.
 
-The extension listens for the `context` event and removes `type: "thinking"` blocks from assistant messages before each request to the LLM. When CTT mode is enabled, it also listens for `message_end` and removes thinking blocks from finalized assistant messages before they are saved.
+The extension listens for the `context` event and, in `context` or `full` mode, removes `type: "thinking"` blocks from assistant messages before each request to the LLM. In `full` mode, it also listens for `message_end` and removes thinking blocks from finalized assistant messages before they are saved.
 
 ## Limitations
 
-- `/ctt` affects only new assistant messages.
+- `full` mode affects only new assistant messages.
 - Existing JSONL session entries are not modified.
-- If thinking is not saved, it is lost after the current streaming view is gone.
+- If thinking is not saved in `full` mode, it is lost after the current streaming view is gone.
 
 ## Package layout
 

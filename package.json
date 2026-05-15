@@ -1,7 +1,7 @@
 {
   "name": "pi-cut-the-think",
   "version": "0.1.0",
-  "description": "Pi extension that removes model thinking blocks from LLM context and can optionally prevent saving them.",
+  "description": "Pi extension that controls removal of model thinking blocks.",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
