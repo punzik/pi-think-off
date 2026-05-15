@@ -1,19 +1,19 @@
 /**
- * think-off — strip model thinking from context so it doesn't accumulate.
+ * cut-the-think — strip model thinking from context so it doesn't accumulate.
  *
  * Thinking blocks (extended reasoning) are always removed from messages sent
  * to the LLM. By default they are still saved in the session for human
- * review, but saving can be toggled with /think-off.
+ * review, but saving can be toggled with /cut-the-think.
  */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
 type ContentBlock = { type: string };
 
-interface ThinkOffState {
+interface CutTheThinkState {
   saveThinking: boolean;
 }
 
-const STATE_TYPE = "think-off-state";
+const STATE_TYPE = "cut-the-think-state";
 
 function removeThinkingBlocks<T extends { content: unknown }>(msg: T): T {
   if (!Array.isArray(msg.content)) return msg;
@@ -30,7 +30,7 @@ export default function (pi: ExtensionAPI) {
   let saveThinking = true;
 
   function persistState() {
-    pi.appendEntry<ThinkOffState>(STATE_TYPE, { saveThinking });
+    pi.appendEntry<CutTheThinkState>(STATE_TYPE, { saveThinking });
   }
 
   function restoreState(ctx: ExtensionContext) {
@@ -39,7 +39,7 @@ export default function (pi: ExtensionAPI) {
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
 
-      const data = entry.data as ThinkOffState | undefined;
+      const data = entry.data as CutTheThinkState | undefined;
       if (typeof data?.saveThinking === "boolean") {
         saveThinking = data.saveThinking;
       }
@@ -48,8 +48,8 @@ export default function (pi: ExtensionAPI) {
 
   function updateStatus(ctx: ExtensionContext) {
     ctx.ui.setStatus(
-      "think-off",
-      saveThinking ? undefined : ctx.ui.theme.fg("warning", "[TOFF]"),
+      "cut-the-think",
+      saveThinking ? undefined : ctx.ui.theme.fg("warning", "[CTT]"),
     );
   }
 
@@ -57,14 +57,14 @@ export default function (pi: ExtensionAPI) {
     updateStatus(ctx);
     ctx.ui.notify(
       saveThinking
-        ? "think-off: thinking blocks are kept in the session"
-        : "think-off: thinking blocks are NOT saved to the session",
+        ? "cut-the-think: thinking blocks are kept in the session"
+        : "cut-the-think: thinking blocks are NOT saved to the session",
       "info",
     );
   }
 
-  pi.registerCommand("think-off", {
-    description: "Control whether model thinking blocks are saved to the session. Usage: /think-off [save|drop|status]",
+  pi.registerCommand("cut-the-think", {
+    description: "Control whether model thinking blocks are saved to the session. Usage: /cut-the-think [save|drop|status]",
     getArgumentCompletions: (prefix: string) => {
       const values = ["save", "drop", "status"];
       const items = values
@@ -101,7 +101,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /think-off [save|drop|status]", "error");
+      ctx.ui.notify("Usage: /cut-the-think [save|drop|status]", "error");
     },
   });
 

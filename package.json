@@ -1,15 +1,15 @@
 {
-  "name": "pi-think-off",
+  "name": "pi-cut-the-think",
   "version": "0.1.0",
   "description": "Pi extension that removes model thinking blocks from LLM context and can optionally prevent saving them.",
   "license": "GPL-3.0-only",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/punzik/pi-think-off.git"
+    "url": "git+https://github.com/punzik/pi-cut-the-think.git"
   },
-  "homepage": "https://github.com/punzik/pi-think-off#readme",
+  "homepage": "https://github.com/punzik/pi-cut-the-think#readme",
   "bugs": {
-    "url": "https://github.com/punzik/pi-think-off/issues"
+    "url": "https://github.com/punzik/pi-cut-the-think/issues"
   },
   "keywords": [
     "pi-package",
@@ -28,7 +28,7 @@
   },
   "pi": {
     "extensions": [
-      "./extensions/think-off.ts"
+      "./extensions/cut-the-think.ts"
     ]
   }
 }
