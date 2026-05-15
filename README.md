@@ -2,7 +2,7 @@
 
 A [Pi](https://pi.dev) package that removes model thinking blocks (extended thinking / reasoning) from the context sent to the LLM.
 
-The extension strips thinking blocks from outgoing model requests. By default it keeps thinking blocks in the session for human review, but this can be toggled with `/cut-the-think`.
+The extension strips thinking blocks from outgoing model requests. By default it keeps thinking blocks in the session for human review, but this can be toggled with `/ctt`.
 
 ## Why
 
@@ -14,7 +14,7 @@ When extended thinking is enabled, assistant messages can contain `ThinkingConte
 
 - Thinking is **removed from the LLM context**.
 - Thinking is **kept in the session by default**.
-- Use `/cut-the-think` to control whether new thinking blocks are saved.
+- Use `/ctt` to control whether new thinking blocks are saved.
 - When saving is enabled, thinking remains visible in `/tree` and in session data.
 - No commands or configuration are required after installation.
 
@@ -60,13 +60,13 @@ pi --thinking high
 
 The extension automatically filters thinking blocks before each LLM request.
 
-Use `/cut-the-think` to control saving thinking blocks to the session:
+Use `/ctt` to control saving thinking blocks to the session:
 
 ```text
-/cut-the-think          # toggle saving/drop mode
-/cut-the-think drop     # do not save thinking blocks from new assistant messages
-/cut-the-think save     # keep thinking blocks in the session
-/cut-the-think status   # show current mode
+/ctt          # toggle saving/drop mode
+/ctt on       # do not save thinking blocks from new assistant messages
+/ctt off      # keep thinking blocks in the session
+/ctt status   # show current mode
 ```
 
 The setting is stored in the current session branch. It affects new assistant messages only; existing JSONL entries are not rewritten. When saving is off, the footer shows a `[CTT]` status badge.
@@ -75,7 +75,7 @@ The setting is stored in the current session branch. It affects new assistant me
 
 The package declares its extension in `package.json` under the `pi.extensions` manifest key. Pi loads `extensions/cut-the-think.ts` and the extension listens for the `context` event, which fires before each request to the LLM.
 
-For every assistant message in the outgoing context, the extension removes content blocks with `type: "thinking"`. The `/cut-the-think` command stores a per-session-branch setting, and when saving is off the extension also removes thinking blocks from finalized assistant messages before they are written to the session.
+For every assistant message in the outgoing context, the extension removes content blocks with `type: "thinking"`. The `/ctt` command stores a per-session-branch setting, and when saving is off the extension also removes thinking blocks from finalized assistant messages before they are written to the session.
 
 ## Package layout
 

@@ -3,7 +3,7 @@
  *
  * Thinking blocks (extended reasoning) are always removed from messages sent
  * to the LLM. By default they are still saved in the session for human
- * review, but saving can be toggled with /cut-the-think.
+ * review, but saving can be toggled with /ctt.
  */
 import type { ExtensionAPI, ExtensionContext } from "@mariozechner/pi-coding-agent";
 
@@ -63,10 +63,10 @@ export default function (pi: ExtensionAPI) {
     );
   }
 
-  pi.registerCommand("cut-the-think", {
-    description: "Control whether model thinking blocks are saved to the session. Usage: /cut-the-think [save|drop|status]",
+  pi.registerCommand("ctt", {
+    description: "Control whether model thinking blocks are saved to the session. Usage: /ctt [off|on|status]",
     getArgumentCompletions: (prefix: string) => {
-      const values = ["save", "drop", "status"];
+      const values = ["off", "on", "status"];
       const items = values
         .filter((value) => value.startsWith(prefix.trim()))
         .map((value) => ({ value, label: value }));
@@ -82,14 +82,14 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      if (action === "save") {
+      if (action === "off") {
         saveThinking = true;
         persistState();
         notifyStatus(ctx);
         return;
       }
 
-      if (action === "drop") {
+      if (action === "on") {
         saveThinking = false;
         persistState();
         notifyStatus(ctx);
@@ -101,7 +101,7 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
-      ctx.ui.notify("Usage: /cut-the-think [save|drop|status]", "error");
+      ctx.ui.notify("Usage: /ctt [off|on|status]", "error");
     },
   });
 
