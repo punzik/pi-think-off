@@ -2,6 +2,8 @@
 
 A [Pi](https://pi.dev) package that controls removal of model thinking blocks.
 
+This package intentionally targets the `@earendil-works/*` scoped Pi packages.
+
 ## Why
 
 When extended thinking is enabled, assistant messages can contain `ThinkingContent` blocks. Across multiple turns these blocks can become large and waste context tokens.
@@ -17,9 +19,9 @@ Unlike plugins that rewrite the beginning of the context, `pi-cut-the-think` onl
 ## Behavior
 
 - `off`: thinking blocks are not removed.
-- `context`: thinking blocks are removed only from the latest assistant message in the LLM context.
-- `lazy`: thinking blocks are preserved during tool-call chains; after the next user prompt, they are removed only from the last completed chain between the previous and current user messages.
-- `full`: thinking blocks are removed from the latest assistant message in the LLM context and from new assistant messages before they are saved.
+- `context`: thinking blocks are removed only from the latest assistant message in the LLM context; thinking-only assistant messages are removed from the outgoing context.
+- `lazy`: thinking blocks are preserved during tool-call chains; after the next user prompt, they are removed only from the last completed chain between the previous and current user messages; thinking-only assistant messages in that chain are removed from the outgoing context.
+- `full`: thinking blocks are removed from the latest assistant message in the LLM context and from new assistant messages before they are saved. Thinking-only assistant messages are saved as `[thinking removed]` instead of an empty message.
 - The default mode is `off`.
 - `/ctt` without arguments toggles between `off` and the previous active mode.
 - The first `/ctt` toggle enables `context` mode.
