@@ -15,6 +15,7 @@ When extended thinking is enabled, assistant messages can contain `ThinkingConte
 - Thinking is **removed from the LLM context**.
 - Thinking is **kept in the session by default**.
 - Use `/ctt` to control whether new thinking blocks are saved.
+- Set `PI_CUT_THE_THINK=1` when starting Pi to enable CTT mode immediately.
 - When saving is enabled, thinking remains visible in `/tree` and in session data.
 - No commands or configuration are required after installation.
 
@@ -70,6 +71,12 @@ Use `/ctt` to control saving thinking blocks to the session:
 ```
 
 The setting is stored in the current session branch. It affects new assistant messages only; existing JSONL entries are not rewritten. When saving is off, the footer shows a `[CTT]` status badge.
+
+To start Pi with CTT mode already enabled, set `PI_CUT_THE_THINK` to `1`, `true`, `yes`, or `on`:
+
+```bash
+PI_CUT_THE_THINK=1 pi --thinking high
+```
 
 ## How it works
 

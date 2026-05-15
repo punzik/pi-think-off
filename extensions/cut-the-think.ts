@@ -14,6 +14,15 @@ interface CutTheThinkState {
 }
 
 const STATE_TYPE = "cut-the-think-state";
+const ENABLE_CTT_ENV = "PI_CUT_THE_THINK";
+const ENABLE_CTT_VALUES = new Set(["1", "true", "yes", "on"]);
+
+function isCttEnabledFromEnv(): boolean {
+  const env = (globalThis as { process?: { env?: Record<string, string | undefined> } })
+    .process?.env;
+  const value = env?.[ENABLE_CTT_ENV]?.trim().toLowerCase();
+  return value !== undefined && ENABLE_CTT_VALUES.has(value);
+}
 
 function removeThinkingBlocks<T extends { content: unknown }>(msg: T): T {
   if (!Array.isArray(msg.content)) return msg;
@@ -28,6 +37,7 @@ function removeThinkingBlocks<T extends { content: unknown }>(msg: T): T {
 
 export default function (pi: ExtensionAPI) {
   let saveThinking = true;
+  let applyEnvCttOnStartup = isCttEnabledFromEnv();
 
   function persistState() {
     pi.appendEntry<CutTheThinkState>(STATE_TYPE, { saveThinking });
@@ -43,6 +53,12 @@ export default function (pi: ExtensionAPI) {
       if (typeof data?.saveThinking === "boolean") {
         saveThinking = data.saveThinking;
       }
+    }
+
+    if (applyEnvCttOnStartup) {
+      saveThinking = false;
+      persistState();
+      applyEnvCttOnStartup = false;
     }
   }
 
