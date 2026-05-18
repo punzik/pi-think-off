@@ -2,8 +2,8 @@
  * pi-cut-the-think — control removal of model thinking blocks.
  *
  * Thinking blocks (extended reasoning) can be removed from messages sent to
- * the LLM and, in full mode, from new assistant messages saved to the
- * session. Lazy mode preserves thinking during tool-call chains and removes
+ * the LLM and, in full/lazyfull mode, from new assistant messages saved to the
+ * session. Lazy modes preserve thinking during tool-call chains and remove
  * it from the last completed chain only after the next user prompt.
  */
 import { env } from "node:process";
@@ -11,7 +11,7 @@ import { env } from "node:process";
 import type { AssistantMessage, TextContent } from "@earendil-works/pi-ai";
 import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 
-type CutTheThinkMode = "off" | "context" | "lazy" | "full";
+type CutTheThinkMode = "off" | "context" | "lazy" | "full" | "lazyfull";
 type ActiveCutTheThinkMode = Exclude<CutTheThinkMode, "off">;
 
 interface CutTheThinkState {
@@ -29,18 +29,27 @@ const ENABLE_CTT_ENV = "PI_CUT_THE_THINK";
 const DEFAULT_MODE: CutTheThinkMode = "off";
 const DEFAULT_PREVIOUS_MODE: ActiveCutTheThinkMode = "context";
 const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
-const COMMAND_USAGE = "Usage: /ctt [off|context|lazy|full|status]";
-const COMMAND_ARGUMENTS = ["off", "context", "lazy", "full", "status"];
+const COMMAND_USAGE = "Usage: /ctt [off|context|lazy|full|lazyfull|status]";
+const COMMAND_ARGUMENTS = ["off", "context", "lazy", "full", "lazyfull", "status"];
 const THINKING_REMOVED_PLACEHOLDER = "[thinking removed]";
 
 function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
   return (
-    value === "off" || value === "context" || value === "lazy" || value === "full"
+    value === "off" ||
+    value === "context" ||
+    value === "lazy" ||
+    value === "full" ||
+    value === "lazyfull"
   );
 }
 
 function isActiveCutTheThinkMode(value: unknown): value is ActiveCutTheThinkMode {
-  return value === "context" || value === "lazy" || value === "full";
+  return (
+    value === "context" ||
+    value === "lazy" ||
+    value === "full" ||
+    value === "lazyfull"
+  );
 }
 
 function readModeFromEnv(): CutTheThinkMode | undefined {
@@ -49,6 +58,7 @@ function readModeFromEnv(): CutTheThinkMode | undefined {
   if (CONTEXT_ENV_VALUES.has(value)) return "context";
   if (value === "lazy") return "lazy";
   if (value === "full") return "full";
+  if (value === "lazyfull") return "lazyfull";
   return undefined;
 }
 
@@ -98,10 +108,29 @@ function removeThinkingBlocksOrPlaceholder(msg: AssistantMessage): AssistantMess
   };
 }
 
+function hasThinkingBlocks(msg: AssistantMessage): boolean {
+  return msg.content.some((block) => block.type === "thinking");
+}
+
+function getToolCallKey(msg: AssistantMessage): string | undefined {
+  const toolCallIds: string[] = [];
+
+  for (const block of msg.content) {
+    if (block.type === "toolCall") {
+      toolCallIds.push(block.id);
+    }
+  }
+
+  return toolCallIds.length > 0 ? toolCallIds.join("\0") : undefined;
+}
+
 export default function (pi: ExtensionAPI) {
   let mode: CutTheThinkMode = DEFAULT_MODE;
   let previousMode: ActiveCutTheThinkMode = DEFAULT_PREVIOUS_MODE;
   let startupEnvMode = readModeFromEnv();
+  // lazyfull removes thinking before saving messages, but active tool-call chains
+  // may still need the original assistant thinking in subsequent LLM requests.
+  const pendingLazyFullToolCallMessages = new Map<string, AssistantMessage>();
 
   function setMode(nextMode: CutTheThinkMode) {
     if (mode !== "off") {
@@ -109,6 +138,10 @@ export default function (pi: ExtensionAPI) {
     }
 
     mode = nextMode;
+
+    if (mode !== "lazyfull") {
+      pendingLazyFullToolCallMessages.clear();
+    }
 
     if (mode !== "off") {
       previousMode = mode;
@@ -122,6 +155,7 @@ export default function (pi: ExtensionAPI) {
   function restoreState(ctx: ExtensionContext) {
     mode = DEFAULT_MODE;
     previousMode = DEFAULT_PREVIOUS_MODE;
+    pendingLazyFullToolCallMessages.clear();
 
     for (const entry of ctx.sessionManager.getBranch()) {
       if (entry.type !== "custom" || entry.customType !== STATE_TYPE) continue;
@@ -156,7 +190,9 @@ export default function (pi: ExtensionAPI) {
           ? "[CTT:L]"
           : mode === "full"
             ? "[CTT:F]"
-            : "[CTT]";
+            : mode === "lazyfull"
+              ? "[CTT:LF]"
+              : "[CTT]";
 
     ctx.ui.setStatus(
       "cut-the-think",
@@ -174,7 +210,9 @@ export default function (pi: ExtensionAPI) {
           ? "cut-the-think: thinking blocks are removed from the latest assistant message in LLM context"
           : mode === "lazy"
             ? "cut-the-think: thinking blocks are preserved during tool-call chains and removed from the last completed chain"
-            : "cut-the-think: thinking blocks are removed from LLM context and new session messages";
+            : mode === "full"
+              ? "cut-the-think: thinking blocks are removed from LLM context and new session messages"
+              : "cut-the-think: thinking blocks are preserved in active tool-call context and removed from new session messages";
 
     ctx.ui.notify(message, "info");
   }
@@ -225,6 +263,13 @@ export default function (pi: ExtensionAPI) {
         return;
       }
 
+      if (action === "lazyfull") {
+        setMode("lazyfull");
+        persistState();
+        notifyStatus(ctx);
+        return;
+      }
+
       if (action === "status") {
         notifyStatus(ctx);
         return;
@@ -244,10 +289,14 @@ export default function (pi: ExtensionAPI) {
     updateStatus(ctx);
   });
 
+  pi.on("agent_end", async () => {
+    pendingLazyFullToolCallMessages.clear();
+  });
+
   pi.on("context", async (event, _ctx) => {
     if (mode === "off") return;
 
-    if (mode === "lazy") {
+    if (mode === "lazy" || mode === "lazyfull") {
       let currentUserIndex = -1;
 
       for (let index = event.messages.length - 1; index >= 0; index -= 1) {
@@ -259,10 +308,37 @@ export default function (pi: ExtensionAPI) {
 
       if (currentUserIndex === -1) return;
 
+      type ContextMessage = (typeof event.messages)[number];
+      const messages: Array<ContextMessage | undefined> = event.messages.slice();
+      let changed = false;
+
       const hasActiveChainAfterCurrentUser = event.messages
         .slice(currentUserIndex + 1)
         .some((msg) => msg.role === "assistant" || msg.role === "toolResult");
-      if (hasActiveChainAfterCurrentUser) return;
+      if (hasActiveChainAfterCurrentUser) {
+        if (mode !== "lazyfull" || pendingLazyFullToolCallMessages.size === 0) return;
+
+        for (let index = currentUserIndex + 1; index < event.messages.length; index += 1) {
+          const msg = event.messages[index];
+
+          if (msg?.role !== "assistant") continue;
+
+          const toolCallKey = getToolCallKey(msg);
+          if (toolCallKey === undefined) continue;
+
+          const pendingMessage = pendingLazyFullToolCallMessages.get(toolCallKey);
+          if (pendingMessage === undefined) continue;
+
+          messages[index] = pendingMessage;
+          changed = true;
+        }
+
+        return changed
+          ? { messages: messages.filter((msg): msg is ContextMessage => msg !== undefined) }
+          : undefined;
+      }
+
+      pendingLazyFullToolCallMessages.clear();
 
       let previousUserIndex = -1;
       for (let index = currentUserIndex - 1; index >= 0; index -= 1) {
@@ -273,10 +349,6 @@ export default function (pi: ExtensionAPI) {
       }
 
       if (previousUserIndex === -1) return;
-
-      type ContextMessage = (typeof event.messages)[number];
-      const messages: Array<ContextMessage | undefined> = event.messages.slice();
-      let changed = false;
 
       for (let index = previousUserIndex + 1; index < currentUserIndex; index += 1) {
         const msg = event.messages[index];
@@ -326,8 +398,15 @@ export default function (pi: ExtensionAPI) {
   });
 
   pi.on("message_end", async (event, _ctx) => {
-    if (mode !== "full") return;
+    if (mode !== "full" && mode !== "lazyfull") return;
     if (event.message.role !== "assistant") return;
+
+    if (mode === "lazyfull" && hasThinkingBlocks(event.message)) {
+      const toolCallKey = getToolCallKey(event.message);
+      if (toolCallKey !== undefined) {
+        pendingLazyFullToolCallMessages.set(toolCallKey, event.message);
+      }
+    }
 
     return { message: removeThinkingBlocksOrPlaceholder(event.message) };
   });
