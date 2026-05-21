@@ -28,6 +28,7 @@ Unlike plugins that rewrite the beginning of the context, `pi-cut-the-think` onl
 - The first `/ctt` toggle enables `context` mode.
 - `PI_CUT_THE_THINK=1` starts Pi in `context` mode.
 - When CTT mode is enabled, the footer shows `[CTT]`, `[CTT:L]`, `[CTT:F]`, or `[CTT:LF]`.
+- After thinking has been removed, the footer also shows removal statistics, e.g. `[CTT:L 3 ~1.8kt]` (blocks, approximate tokens).
 - Existing session entries are not rewritten.
 
 ## Installation
@@ -82,7 +83,7 @@ Use `/ctt` to control thinking block removal:
 /ctt status   # show current mode
 ```
 
-The setting is stored in the current session branch. `lazy` mode affects the outgoing LLM context only. `full` mode affects new assistant messages only. `lazyfull` combines lazy context cleanup with full history cleanup.
+The setting and removal statistics are stored in the current session branch. `lazy` mode affects the outgoing LLM context only. `full` mode affects new assistant messages only. `lazyfull` combines lazy context cleanup with full history cleanup.
 
 To start Pi in `context` mode, set `PI_CUT_THE_THINK` to `1`, `true`, `yes`, `on`, or `context`:
 
@@ -107,6 +108,8 @@ Pi loads `extensions/cut-the-think.ts` from the package manifest in `package.jso
 The extension listens for the `context` event before each request to the LLM. In `context` or `full` mode, it removes `type: "thinking"` blocks only from the latest assistant message. In `lazy` or `lazyfull` mode, it does nothing while a tool-call chain is active; when a later user prompt starts a new request, it removes thinking only from assistant messages in the last completed chain between the previous and current user messages.
 
 Earlier context messages are left unchanged to keep the prompt prefix stable for KV-cache reuse. In `full` and `lazyfull` modes, the extension also listens for `message_end` and removes thinking blocks from finalized assistant messages before they are saved. In `lazyfull` mode, original tool-calling assistant messages are kept in memory only until the current agent run ends so their thinking can still be included in active tool-chain context.
+
+Whenever thinking is removed, the extension increments branch-local statistics: removed thinking block count, removed character count, and an approximate token estimate from a simple text/code tokenizer.
 
 ## Limitations
 

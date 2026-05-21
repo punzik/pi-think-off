@@ -14,12 +14,18 @@ import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-a
 type CutTheThinkMode = "off" | "context" | "lazy" | "full" | "lazyfull";
 type ActiveCutTheThinkMode = Exclude<CutTheThinkMode, "off">;
 
-interface CutTheThinkState {
+interface CutTheThinkStats {
+  removedThinkingBlocks: number;
+  removedThinkingChars: number;
+  removedThinkingApproxTokens: number;
+}
+
+interface CutTheThinkState extends CutTheThinkStats {
   mode: CutTheThinkMode;
   previousMode: ActiveCutTheThinkMode;
 }
 
-interface RestoredCutTheThinkState {
+interface RestoredCutTheThinkState extends Partial<CutTheThinkStats> {
   mode?: CutTheThinkMode;
   previousMode?: ActiveCutTheThinkMode;
 }
@@ -32,6 +38,8 @@ const CONTEXT_ENV_VALUES = new Set(["1", "true", "yes", "on", "context"]);
 const COMMAND_USAGE = "Usage: /ctt [off|context|lazy|full|lazyfull|status]";
 const COMMAND_ARGUMENTS = ["off", "context", "lazy", "full", "lazyfull", "status"];
 const THINKING_REMOVED_PLACEHOLDER = "[thinking removed]";
+const WORD_OR_SYMBOL_RE = /[\p{L}\p{N}_]+|[^\s]/gu;
+const WORD_OR_NUMBER_RE = /^[\p{L}\p{N}_]+$/u;
 
 function isCutTheThinkMode(value: unknown): value is CutTheThinkMode {
   return (
@@ -50,6 +58,11 @@ function isActiveCutTheThinkMode(value: unknown): value is ActiveCutTheThinkMode
     value === "full" ||
     value === "lazyfull"
   );
+}
+
+function readNonNegativeInteger(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.floor(value);
 }
 
 function readModeFromEnv(): CutTheThinkMode | undefined {
@@ -81,11 +94,106 @@ function readCutTheThinkState(data: unknown): RestoredCutTheThinkState {
     }
   }
 
+  if ("removedThinkingBlocks" in data) {
+    const removedThinkingBlocks = readNonNegativeInteger(data.removedThinkingBlocks);
+    if (removedThinkingBlocks !== undefined) {
+      state.removedThinkingBlocks = removedThinkingBlocks;
+    }
+  }
+
+  if ("removedThinkingChars" in data) {
+    const removedThinkingChars = readNonNegativeInteger(data.removedThinkingChars);
+    if (removedThinkingChars !== undefined) {
+      state.removedThinkingChars = removedThinkingChars;
+    }
+  }
+
+  if ("removedThinkingApproxTokens" in data) {
+    const removedThinkingApproxTokens = readNonNegativeInteger(data.removedThinkingApproxTokens);
+    if (removedThinkingApproxTokens !== undefined) {
+      state.removedThinkingApproxTokens = removedThinkingApproxTokens;
+    }
+  }
+
   return state;
 }
 
 function createThinkingRemovedPlaceholder(): TextContent {
   return { type: "text", text: THINKING_REMOVED_PLACEHOLDER };
+}
+
+function estimateTokens(text: string): number {
+  const chunks = text.match(WORD_OR_SYMBOL_RE) ?? [];
+  let tokens = 0;
+
+  for (const chunk of chunks) {
+    if (WORD_OR_NUMBER_RE.test(chunk)) {
+      tokens += Math.max(1, Math.ceil(Array.from(chunk).length / 3.5));
+    } else {
+      tokens += 1;
+    }
+  }
+
+  return tokens;
+}
+
+function getThinkingRemovalStats(msg: AssistantMessage): CutTheThinkStats {
+  const stats: CutTheThinkStats = {
+    removedThinkingBlocks: 0,
+    removedThinkingChars: 0,
+    removedThinkingApproxTokens: 0,
+  };
+
+  for (const block of msg.content) {
+    if (block.type !== "thinking") continue;
+
+    stats.removedThinkingBlocks += 1;
+    stats.removedThinkingChars += Array.from(block.thinking).length;
+    stats.removedThinkingApproxTokens += estimateTokens(block.thinking);
+  }
+
+  return stats;
+}
+
+function addStats(target: CutTheThinkStats, delta: CutTheThinkStats) {
+  target.removedThinkingBlocks += delta.removedThinkingBlocks;
+  target.removedThinkingChars += delta.removedThinkingChars;
+  target.removedThinkingApproxTokens += delta.removedThinkingApproxTokens;
+}
+
+function hasRemovedThinking(stats: CutTheThinkStats): boolean {
+  return stats.removedThinkingBlocks > 0;
+}
+
+function formatCompactNumber(value: number): string {
+  if (value < 1_000) return String(value);
+  if (value < 1_000_000) {
+    const precision = value < 10_000 ? 1 : 0;
+    return `${(value / 1_000).toFixed(precision).replace(/\.0$/, "")}k`;
+  }
+
+  const precision = value < 10_000_000 ? 1 : 0;
+  return `${(value / 1_000_000).toFixed(precision).replace(/\.0$/, "")}m`;
+}
+
+function formatStatsForStatus(stats: CutTheThinkStats): string {
+  if (!hasRemovedThinking(stats)) return "";
+
+  return ` ${formatCompactNumber(stats.removedThinkingBlocks)} ~${formatCompactNumber(
+    stats.removedThinkingApproxTokens,
+  )}t`;
+}
+
+function formatExactNumber(value: number): string {
+  return value.toLocaleString("en-US");
+}
+
+function formatStatsForNotification(stats: CutTheThinkStats): string {
+  if (!hasRemovedThinking(stats)) return "";
+
+  return `; removed ${formatExactNumber(stats.removedThinkingBlocks)} thinking block(s), ~${formatExactNumber(
+    stats.removedThinkingApproxTokens,
+  )} tokens (${formatExactNumber(stats.removedThinkingChars)} chars)`;
 }
 
 function removeThinkingBlocks(msg: AssistantMessage): AssistantMessage | undefined {
@@ -108,10 +216,6 @@ function removeThinkingBlocksOrPlaceholder(msg: AssistantMessage): AssistantMess
   };
 }
 
-function hasThinkingBlocks(msg: AssistantMessage): boolean {
-  return msg.content.some((block) => block.type === "thinking");
-}
-
 function getToolCallKey(msg: AssistantMessage): string | undefined {
   const toolCallIds: string[] = [];
 
@@ -127,6 +231,11 @@ function getToolCallKey(msg: AssistantMessage): string | undefined {
 export default function (pi: ExtensionAPI) {
   let mode: CutTheThinkMode = DEFAULT_MODE;
   let previousMode: ActiveCutTheThinkMode = DEFAULT_PREVIOUS_MODE;
+  const stats: CutTheThinkStats = {
+    removedThinkingBlocks: 0,
+    removedThinkingChars: 0,
+    removedThinkingApproxTokens: 0,
+  };
   let startupEnvMode = readModeFromEnv();
   // lazyfull removes thinking before saving messages, but active tool-call chains
   // may still need the original assistant thinking in subsequent LLM requests.
@@ -149,12 +258,15 @@ export default function (pi: ExtensionAPI) {
   }
 
   function persistState() {
-    pi.appendEntry<CutTheThinkState>(STATE_TYPE, { mode, previousMode });
+    pi.appendEntry<CutTheThinkState>(STATE_TYPE, { mode, previousMode, ...stats });
   }
 
   function restoreState(ctx: ExtensionContext) {
     mode = DEFAULT_MODE;
     previousMode = DEFAULT_PREVIOUS_MODE;
+    stats.removedThinkingBlocks = 0;
+    stats.removedThinkingChars = 0;
+    stats.removedThinkingApproxTokens = 0;
     pendingLazyFullToolCallMessages.clear();
 
     for (const entry of ctx.sessionManager.getBranch()) {
@@ -170,6 +282,18 @@ export default function (pi: ExtensionAPI) {
         previousMode = restoredState.previousMode;
       } else if (isActiveCutTheThinkMode(restoredState.mode)) {
         previousMode = restoredState.mode;
+      }
+
+      if (restoredState.removedThinkingBlocks !== undefined) {
+        stats.removedThinkingBlocks = restoredState.removedThinkingBlocks;
+      }
+
+      if (restoredState.removedThinkingChars !== undefined) {
+        stats.removedThinkingChars = restoredState.removedThinkingChars;
+      }
+
+      if (restoredState.removedThinkingApproxTokens !== undefined) {
+        stats.removedThinkingApproxTokens = restoredState.removedThinkingApproxTokens;
       }
     }
 
@@ -196,7 +320,9 @@ export default function (pi: ExtensionAPI) {
 
     ctx.ui.setStatus(
       "cut-the-think",
-      status === undefined ? undefined : ctx.ui.theme.fg("warning", status),
+      status === undefined
+        ? undefined
+        : ctx.ui.theme.fg("warning", `${status.slice(0, -1)}${formatStatsForStatus(stats)}]`),
     );
   }
 
@@ -214,7 +340,15 @@ export default function (pi: ExtensionAPI) {
               ? "cut-the-think: thinking blocks are removed from LLM context and new session messages"
               : "cut-the-think: thinking blocks are preserved in active tool-call context and removed from new session messages";
 
-    ctx.ui.notify(message, "info");
+    ctx.ui.notify(`${message}${formatStatsForNotification(stats)}`, "info");
+  }
+
+  function recordThinkingRemoval(removalStats: CutTheThinkStats, ctx: ExtensionContext) {
+    if (!hasRemovedThinking(removalStats)) return;
+
+    addStats(stats, removalStats);
+    persistState();
+    updateStatus(ctx);
   }
 
   pi.registerCommand("ctt", {
@@ -293,7 +427,7 @@ export default function (pi: ExtensionAPI) {
     pendingLazyFullToolCallMessages.clear();
   });
 
-  pi.on("context", async (event, _ctx) => {
+  pi.on("context", async (event, ctx) => {
     if (mode === "off") return;
 
     if (mode === "lazy" || mode === "lazyfull") {
@@ -310,6 +444,11 @@ export default function (pi: ExtensionAPI) {
 
       type ContextMessage = (typeof event.messages)[number];
       const messages: Array<ContextMessage | undefined> = event.messages.slice();
+      const removalStats: CutTheThinkStats = {
+        removedThinkingBlocks: 0,
+        removedThinkingChars: 0,
+        removedThinkingApproxTokens: 0,
+      };
       let changed = false;
 
       const hasActiveChainAfterCurrentUser = event.messages
@@ -359,13 +498,17 @@ export default function (pi: ExtensionAPI) {
         const filteredMessage = removeThinkingBlocks(msg);
         if (filteredMessage === msg) continue;
 
+        addStats(removalStats, getThinkingRemovalStats(msg));
         messages[index] = filteredMessage;
         changed = true;
       }
 
-      return changed
-        ? { messages: messages.filter((msg): msg is ContextMessage => msg !== undefined) }
-        : undefined;
+      if (changed) {
+        recordThinkingRemoval(removalStats, ctx);
+        return { messages: messages.filter((msg): msg is ContextMessage => msg !== undefined) };
+      }
+
+      return undefined;
     }
 
     let lastAssistantIndex = -1;
@@ -384,6 +527,7 @@ export default function (pi: ExtensionAPI) {
 
     if (lastAssistantMessage === undefined) return;
 
+    const removalStats = getThinkingRemovalStats(lastAssistantMessage);
     const filteredMessage = removeThinkingBlocks(lastAssistantMessage);
     if (filteredMessage === lastAssistantMessage) return;
 
@@ -394,20 +538,24 @@ export default function (pi: ExtensionAPI) {
       messages[lastAssistantIndex] = filteredMessage;
     }
 
+    recordThinkingRemoval(removalStats, ctx);
     return { messages };
   });
 
-  pi.on("message_end", async (event, _ctx) => {
+  pi.on("message_end", async (event, ctx) => {
     if (mode !== "full" && mode !== "lazyfull") return;
     if (event.message.role !== "assistant") return;
 
-    if (mode === "lazyfull" && hasThinkingBlocks(event.message)) {
+    const removalStats = getThinkingRemovalStats(event.message);
+
+    if (mode === "lazyfull" && hasRemovedThinking(removalStats)) {
       const toolCallKey = getToolCallKey(event.message);
       if (toolCallKey !== undefined) {
         pendingLazyFullToolCallMessages.set(toolCallKey, event.message);
       }
     }
 
+    recordThinkingRemoval(removalStats, ctx);
     return { message: removeThinkingBlocksOrPlaceholder(event.message) };
   });
 }
